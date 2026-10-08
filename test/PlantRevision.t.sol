@@ -32,6 +32,7 @@ contract PlantRevisionTest is PlantFixture {
         conservation();
     }
 
+    /// forge-config: default.fuzz.runs = 1000
     function testFuzz_externalBurnKeepsDeadRedemptionAndGardenerClaimsAvailable(uint96 rawBurn) public {
         birth();
         imd.mint(address(body), 10_000 ether);
