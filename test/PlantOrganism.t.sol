@@ -726,6 +726,7 @@ contract PlantOrganismTest is PlantFixture {
         conservation();
     }
 
+    /// forge-config: default.fuzz.runs = 1000
     function testFuzz_maskSimulationAndConservation(uint24 sun, uint24 rain, uint96 funds) public {
         birth();
         imd.mint(address(body), funds);
@@ -755,6 +756,7 @@ contract PlantOrganismTest is PlantFixture {
         conservation();
     }
 
+    /// forge-config: default.fuzz.runs = 1000
     function testFuzz_redemptionFloorNeverDecreases(uint96 funds, uint96 rawAmount) public {
         birth();
         imd.mint(address(body), funds);

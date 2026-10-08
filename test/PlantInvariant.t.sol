@@ -229,6 +229,9 @@ contract PlantInvariantTest is PlantFixture {
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
 
+    /// forge-config: default.invariant.runs = 256
+    /// forge-config: default.invariant.depth = 96
+    /// forge-config: default.invariant.fail-on-revert = true
     function invariant_accountingAndEagerRewardModelAgree() public {
         handler.check();
     }
