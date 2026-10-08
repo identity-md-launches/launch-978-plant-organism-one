@@ -131,6 +131,9 @@ contract PlantHandler is Test {
         a.questionHash = body.QUESTION_HASH();
         a.answerType = 5;
         a.answer = abi.encode(words);
+        a.panelSize = 5;
+        a.quorum = 4;
+        a.agreed = 5;
         a.issuedAt = uint64(block.timestamp);
         a.expiresAt = uint64(block.timestamp + 1 days);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(KEY, body.attestationDigest(a));

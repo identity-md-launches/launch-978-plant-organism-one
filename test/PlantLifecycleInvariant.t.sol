@@ -21,6 +21,7 @@ contract PlantLifecycleHandler is Test {
     uint256 public redemptionsOut;
     uint256 public bountiesOut;
     uint256 public burned;
+    uint256 public externallyBurned;
     uint256 public donatedPlant;
     uint256 public maxFloor;
     uint256 public expectedDay;
@@ -105,6 +106,21 @@ contract PlantLifecycleHandler is Test {
         check();
     }
 
+    function burnOutsideOrganism(uint8 who, uint256 raw) external {
+        address actor = actors[who % 4];
+        uint256 balance = token.balanceOf(actor);
+        if (balance == 0) return;
+        uint256 amount = bound(raw, 1, balance);
+        uint256 beforeFloor = body.floor();
+        uint256 beforeDebt = body.owed();
+        vm.prank(actor);
+        token.burn(amount);
+        externallyBurned += amount;
+        assertEq(body.floor(), beforeFloor, "external burn changed the redemption quote");
+        assertEq(body.owed(), beforeDebt, "external burn changed gardener debt");
+        check();
+    }
+
     function elapse(uint32 raw) external {
         // Most jumps permit recovery; occasional long gaps exercise irreversible death.
         uint256 seconds_ = raw % 16 == 0 ? 30 days : bound(raw, 0, 2 days);
@@ -174,7 +190,11 @@ contract PlantLifecycleHandler is Test {
             support += deposits[candidate][actors[i]];
             incumbent += deposits[expectedLocation][actors[i]];
         }
-        if (valid && candidate != 0 && candidate != expectedLocation && support > incumbent && support * 20 >= 1001) {
+        // Birth has no incumbent: parking at nowhere cannot veto a qualifying first location.
+        if (
+            valid && candidate != 0 && candidate != expectedLocation && (nowhere || support > incumbent)
+                && support * 20 >= 1001
+        ) {
             expectedLocation = candidate;
         } else if (nowhere && ++emptyDays == 3) {
             expectedLocation = cells[1];
@@ -273,8 +293,9 @@ contract PlantLifecycleHandler is Test {
         assertLe(earned, body.owed(), "garden rewards are under-reserved");
         assertEq(body.totalParked(), parked);
         assertEq(token.balanceOf(address(body)), parked + burned + donatedPlant, "burned/donated tokens escaped");
-        assertEq(walletSupply + parked + burned + donatedPlant, 1001);
-        assertEq(token.totalSupply(), 1001);
+        assertEq(walletSupply + parked + burned + donatedPlant + externallyBurned, 1001);
+        assertEq(token.totalSupply() + externallyBurned, 1001);
+        assertEq(body.plantSupply(), 1001, "binding supply snapshot changed");
     }
 
     function exitAll() external {
@@ -290,7 +311,7 @@ contract PlantLifecycleHandler is Test {
         check();
         assertEq(body.owed(), 0, "exit stranded gardener funds");
         assertEq(body.totalParked(), 0);
-        assertEq(burned + donatedPlant, 1001);
+        assertEq(burned + donatedPlant + externallyBurned, 1001);
     }
 
     function _attestation(uint256 day, uint24 sun, uint24 rain, bool valid, uint32 cell)
@@ -327,7 +348,7 @@ contract PlantLifecycleInvariantTest is Test {
         vm.chainId(4663);
         vm.warp(20000 days + 12 hours);
         handler = new PlantLifecycleHandler();
-        bytes4[] memory selectors = new bytes4[](10);
+        bytes4[] memory selectors = new bytes4[](11);
         selectors[0] = handler.fund.selector;
         selectors[1] = handler.park.selector;
         selectors[2] = handler.unpark.selector;
@@ -338,6 +359,7 @@ contract PlantLifecycleInvariantTest is Test {
         selectors[7] = handler.syncDeath.selector;
         selectors[8] = handler.settle.selector;
         selectors[9] = handler.rotate.selector;
+        selectors[10] = handler.burnOutsideOrganism.selector;
         targetContract(address(handler));
         targetSelector(FuzzSelector({addr: address(handler), selectors: selectors}));
     }
@@ -351,6 +373,68 @@ contract PlantLifecycleInvariantTest is Test {
 
     function afterInvariant() public {
         handler.exitAll();
+    }
+
+    function test_handlerBirthIgnoresNowhereSupportButLaterMovesRequireMoreSupport() public {
+        handler.park(0, 0, 401);
+        handler.park(1, 2, 50);
+        handler.settle(0, 0, 2, true);
+        assertEq(handler.body().location(), 0, "50 of 1001 is below five percent");
+        handler.park(1, 2, 1);
+        handler.settle(type(uint24).max, 0, 2, true);
+        assertEq(handler.body().location(), handler.cells(2));
+        assertEq(handler.body().water(), 50, "birth must not consume water");
+
+        handler.park(2, 3, 51);
+        handler.settle(0, 0, 3, true);
+        assertEq(handler.body().location(), handler.cells(2), "a tie cannot move an existing plant");
+        handler.park(2, 3, 1);
+        handler.settle(0, 0, 3, true);
+        assertEq(handler.body().location(), handler.cells(3));
+        handler.exitAll();
+    }
+
+    function test_handlerExternalBurnsKeepClaimsSettlementAndBothRedemptionModesAvailable() public {
+        handler.park(0, 1, 51);
+        handler.settle(0, 0, 1, true);
+        handler.fund(9000);
+        handler.settle(1, 0, 1, false);
+        uint256 reward = handler.body().earned(handler.cells(1), handler.actors(0));
+        assertGt(reward, 0);
+        handler.burnOutsideOrganism(1, 1);
+        handler.claim(0, 1);
+        assertEq(handler.claimsOut(), reward);
+        assertEq(handler.body().owed(), 0, "claim must also release fractional reserve dust");
+
+        handler.park(1, 2, 60);
+        handler.settle(1, 0, 2, true);
+        assertEq(handler.body().location(), handler.cells(2));
+        handler.redeem(2, 10);
+        uint256 livePaid = handler.redemptionsOut();
+        assertGt(livePaid, 0);
+        handler.burnOutsideOrganism(3, 100); // Entire wallet, while other holders remain parked.
+        handler.elapse(0);
+        handler.syncDeath();
+        handler.redeem(2, 10);
+        assertGt(handler.redemptionsOut(), livePaid);
+        handler.exitAll();
+        assertEq(handler.externallyBurned(), 101);
+        assertEq(handler.burned(), 900);
+        assertEq(handler.token().balanceOf(address(handler.body())), 900);
+    }
+
+    function test_handlerExternalBurnDoesNotLowerFivePercentBirthThreshold() public {
+        handler.burnOutsideOrganism(0, 401);
+        handler.burnOutsideOrganism(2, 200);
+        handler.burnOutsideOrganism(3, 100);
+        handler.park(1, 2, 50); // More than 5% of live supply, below 5% of binding supply.
+        handler.settle(0, 0, 2, true);
+        assertEq(handler.body().location(), 0);
+        handler.park(1, 2, 1);
+        handler.settle(0, 0, 2, true);
+        assertEq(handler.body().location(), handler.cells(2));
+        handler.exitAll();
+        assertEq(handler.burned(), 300);
     }
 
     function test_handlerExercisesBirthRewardsMoveRotationDeathAndFullExit() public {
