@@ -145,6 +145,8 @@ contract PlantOrganism {
         plant = IPlantToken(token);
         plantSupply = supply;
         QUESTION_HASH = questionHash;
+        // Bound settlement first becomes possible now; waiting for the second launch is not inactivity.
+        lastSuccessfulSettle = block.timestamp;
         emit Bound(hook_, token, questionHash);
     }
 
@@ -274,6 +276,7 @@ contract PlantOrganism {
         if (block.chainid != CHAIN_ID || a.chainId != CHAIN_ID || a.questionHash != QUESTION_HASH) {
             revert BadAttestation();
         }
+        if (a.agreed < a.quorum) revert BadAttestation();
         // Canonical abi.encode(bytes32[dynamic]) has offset, length and exactly three words.
         if (a.answerType != OracleAttestation.ANSWER_BYTES32_LIST || a.answer.length != 160) revert BadAttestation();
         (uint256 offset, uint256 length) = abi.decode(a.answer, (uint256, uint256));
@@ -311,7 +314,8 @@ contract PlantOrganism {
         uint256 threshold = plantSupply / 20 + (plantSupply % 20 == 0 ? 0 : 1);
         if (
             valid && challenger != 0 && validCell(challenger) && challenger != current
-                && parkedTotal[challenger] > parkedTotal[current] && parkedTotal[challenger] >= threshold
+                && (current == 0 || parkedTotal[challenger] > parkedTotal[current])
+                && parkedTotal[challenger] >= threshold
         ) {
             location = challenger;
         } else if (current == 0) {
@@ -384,7 +388,8 @@ contract PlantOrganism {
 
     function _checkSupply() private view {
         if (!bound()) revert Unbound();
-        if (plant.totalSupply() != plantSupply) revert SupplyChanged();
+        // External burns do not dilute the fixed redemption denominator or justify blocking exits.
+        if (plant.totalSupply() > plantSupply) revert SupplyChanged();
     }
 
     function _rollCell(uint32 cell) private {

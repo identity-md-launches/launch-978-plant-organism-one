@@ -19,6 +19,11 @@ contract MockToken {
         balanceOf[to] += amount;
     }
 
+    function burn(uint256 amount) external {
+        balanceOf[msg.sender] -= amount;
+        totalSupply -= amount;
+    }
+
     function configure(uint256 mode_, address target_, bytes calldata callback_) external {
         mode = mode_;
         callbackTarget = target_;
