@@ -1,0 +1,24 @@
+# PLANT organism
+
+One immutable plant body on Robinhood Chain **4663**. There is no token, pool, fee distributor, hook, administrator, upgrade or pause in this project. The second launch supplies PLANT and its hook. Dependencies are ordinary vendored files; `forge build`, `forge test`, and `forge fmt --check` work without network access when Solidity **0.8.26** is installed.
+
+**Deployment.** `PlantOrganism(address imd, address signer, uint32 fallbackCell, address deployer)` takes, in order:
+
+| Argument | Launch value |
+| --- | --- |
+| IMD | `0x5f7bb59365ce557c26dbcaa4ee9d39a4b95b7127` |
+| Initial oracle signer | `0x5598aa9146215bc13eb26f2c692ad1461fd32982` |
+| Fallback cell | `10223579` (`0x009BFFDB`, Lisbon: quarter-degrees `155, -37`) |
+| Deployer | `$owner`, explicitly provided by the launch factory |
+
+These addresses are supplied by the brief; local tests use mocks, not a live-chain fork. `launch.json` contains the static handoff. No deployment has been broadcast. The deployer calls `bind(hook, questionHash)` once: the hook must name this organism and a nonzero fixed-supply PLANT token. The hash is the **actual canonical frozen oracle question document hash** agreed with the oracle operator, not an invented value or necessarily a hash of question text alone. Binding permanently fixes all three values. Unbound `settle` only advances the day cursor to today; parking and redemption are disabled.
+
+**Daily life.** Every IMD deposit enters the pot: held IMD minus backing minus gardener obligations. Water starts at 50. Each signed day processes 24 hours in order. Rain adds 3 water, capped at 100, and takes precedence over simultaneous sun. Otherwise sun consumes one water and one tenth of the remaining pot; one third of that sip funds gardeners and the rest becomes backing. Nobody active at the old location means all of that sip becomes backing. Afterward a valid nonzero challenger moves the plant only with strictly more parked PLANT than the current cell and at least 5% of the original supply. Nowhere (`0`) has no weather; three unsuccessful birth settlements select Lisbon. The caller receives 1% of the remaining pot.
+
+**Holders.** Approve PLANT, then `park(cell, amount)` or `unpark(cell, amount)` at any time. Cells pack signed 16-bit latitude/longitude in quarter degrees; latitude is bounded to ±360 and longitude to ±720. Parking counts toward location support immediately, but earns only after the next settlement has finished. Withdrawals remove pending tokens first, then active tokens immediately. `claim()` pays current-cell rewards and already checkpointed credit; use `claim(cell)` for each former/other cell. Events supply the off-chain cell index; no proposal list is stored. `earned(cell, holder)` excludes separately stored `claimable(holder)` credit.
+
+**Redemption and death.** Unpark first, approve PLANT, then `redeem(amount)`. It pays 90% of the proportional backing; the remainder stays behind. Redeemed PLANT stays in this contract forever. `floor()` quotes the backing ratio scaled by `1e18`; redemption calculates the full ratio before rounding toward backing. After exactly 30 days without a successful bound settlement, death is permanent: the pot joins backing and redemption pays 100%. Views reflect death immediately; `syncDeath()` or redemption records it. The clock starts at deployment, including time waiting to bind. Existing gardener obligations remain claimable; later IMD deposits also become backing.
+
+**Settlers and oracle operators.** Obtain an IdentityMD v2 attestation signed for this contract, then submit `settle(attestation, signature)` directly with sufficient gas. See [the exact wire format and operational contract](docs/ORACLE.md). Days must equal `lastSettledDay + 1` and cannot exceed today; catch up in order before the death deadline. The oracle must supply honest weather for the pre-settlement location and choose a valid challenger from parking events. Oracle requests/payment happen outside this contract. The supplied protocol vector is accepted by the verifier; its Sepolia/one-word payload intentionally cannot settle this Robinhood plant.
+
+Only the current oracle key can authorize `rotateSigner(newSigner, sig)`, using the published nonce-bearing digest; anyone can relay it. Retired keys retain attestation authority for 30 days, never rotation authority. Tokens must use exact transfers, stable balances, and fixed PLANT supply; supply changes stop parking, redemption and settlement. No-return ERC-20s work; fees and false returns are rejected. Test keys appear only in tests. Accounting assumptions and rounding are detailed in [ACCOUNTING.md](docs/ACCOUNTING.md). Local tests are not an independent security audit; adversarial review and live address/integration verification remain release responsibilities.

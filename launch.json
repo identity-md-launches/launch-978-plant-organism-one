@@ -1,0 +1,15 @@
+{
+  "kind": "evm_contracts",
+  "contracts": [
+    {
+      "contract": "PlantOrganism",
+      "constructorArgs": [
+        "0x5f7bb59365ce557c26dbcaa4ee9d39a4b95b7127",
+        "0x5598aa9146215bc13eb26f2c692ad1461fd32982",
+        "10223579",
+        "$owner"
+      ]
+    }
+  ],
+  "notes": "Robinhood Chain 4663. The explicit deployer can bind the second launch's hook and frozen canonical oracle question hash once. No token, pool, hook or transactions are created by this project. All token and oracle integrations must meet the README assumptions."
+}
